@@ -13,6 +13,7 @@ import time
 SYS = Path("/sys")
 CPU = SYS / "devices/system/cpu/cpufreq"
 ASPM = SYS / "module/pcie_aspm/parameters/policy"
+VM = Path("/proc/sys/vm")
 GPU_LEVELS = ["auto", "low", "high"]
 FAN_LEVELS = ["auto", "70", "85", "100"]
 FAN_TOLERANCE_PERCENT = 3
@@ -122,6 +123,10 @@ def controls():
             result["governor"] = (paths, sorted(modes), None)
     if read(CPU / "boost") in ("0", "1"):
         result["boost"] = ([CPU / "boost"], ["1", "0"], None)
+    epb = [path for path in sorted((SYS / "devices/system/cpu").glob("cpu[0-9]*/power/energy_perf_bias"))
+           if read(path).isdigit()]
+    if epb:
+        result["cpu-epb"] = (epb, [str(value) for value in range(16)], None)
     modes = [s.strip("[]") for s in read(ASPM).split()]
     if modes:
         result["aspm"] = ([ASPM], modes, None)
@@ -136,6 +141,12 @@ def controls():
         choices = [value.strip("[]") for value in read(scheduler).split()]
         if len(choices) > 1:
             result["scheduler:" + name] = ([scheduler], choices, None)
+    laptop_mode = VM / "laptop_mode"
+    if read(laptop_mode).isdigit():
+        result["laptop-mode"] = ([laptop_mode], ["0", "1", "2", "5", "10"], None)
+    writeback = [VM / "dirty_writeback_centisecs", VM / "dirty_expire_centisecs"]
+    if all(read(path).isdigit() for path in writeback):
+        result["dirty-writeback"] = (writeback, ["500", "1000", "1500", "3000", "6000"], None)
     return result
 
 
@@ -215,7 +226,11 @@ def telemetry():
                     "coreMHz": active_clock(device, "pp_dpm_sclk"),
                     "memoryMHz": active_clock(device, "pp_dpm_mclk"),
                     "power": number(hwmon / "power1_average") if hwmon else None})
-    return {"cpu": cpu, "cpuRisk": cpu_risk, "gpu": gpu, **utilization(), **disk_telemetry()}
+    settings = {key: current(key, paths, hwmon)
+                for key, (paths, _, hwmon) in controls().items()}
+    return {"cpu": cpu, "cpuRisk": cpu_risk, "gpu": gpu, "hardwareSettings": settings,
+            **utilization(), **disk_telemetry()}
+
 
 
 def apply_fan(hwmon, value):

@@ -1,11 +1,119 @@
 #include <QtWidgets>
 #include <DSlider>
+#include <DBlurEffectWidget>
 #include <libudev.h>
 #include <pluginsiteminterface_v2.h>
 
 namespace {
 const QString Item = QStringLiteral("dock-hardware-tuning-plugin");
 const QString Helper = QStringLiteral("/usr/libexec/dock-hardware-tuning-plugin-helper");
+
+class TranslucentComboBox : public QComboBox {
+public:
+    TranslucentComboBox()
+    {
+        auto *list = new QListView;
+        list->setFrameShape(QFrame::NoFrame);
+        list->setAutoFillBackground(false);
+        list->viewport()->setAutoFillBackground(false);
+        list->setItemDelegate(new QStyledItemDelegate(list));
+        setView(list);
+        updateSurface();
+        view()->window()->setAttribute(Qt::WA_TranslucentBackground);
+    }
+
+    void showPopup() override
+    {
+        if (count() == 0)
+            return;
+
+        auto *popup = view()->window();
+        if (m_popup != popup) {
+            m_popup = popup;
+            popup->setAttribute(Qt::WA_TranslucentBackground);
+            popup->setAutoFillBackground(false);
+            popup->installEventFilter(this);
+            m_backdrop = new Dtk::Widget::DBlurEffectWidget(popup);
+            m_backdrop->setAttribute(Qt::WA_TransparentForMouseEvents);
+            m_backdrop->setBlendMode(Dtk::Widget::DBlurEffectWidget::BehindWindowBlend);
+            m_backdrop->setBlurRectXRadius(8);
+            m_backdrop->setBlurRectYRadius(8);
+            m_backdrop->setMaskColor(Dtk::Widget::DBlurEffectWidget::AutoColor);
+            m_backdrop->setMaskAlpha(170);
+        }
+
+        m_backdrop->setGeometry(popup->rect());
+        m_backdrop->lower();
+        m_backdrop->show();
+        QComboBox::showPopup();
+    }
+
+protected:
+    void changeEvent(QEvent *event) override
+    {
+        QComboBox::changeEvent(event);
+        if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange)
+            updateSurface();
+    }
+
+    void paintEvent(QPaintEvent *event) override
+    {
+        QComboBox::paintEvent(event);
+        QStyleOptionComboBox option;
+        initStyleOption(&option);
+        const auto button = style()->subControlRect(QStyle::CC_ComboBox, &option, QStyle::SC_ComboBoxArrow, this);
+        const QPointF center = button.center();
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(option.palette.color(QPalette::ButtonText), 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        const QPolygonF arrow{QVector<QPointF>{center + QPointF(-3, -1), center + QPointF(0, 2),
+                                               center + QPointF(3, -1)}};
+        painter.drawPolyline(arrow);
+    }
+
+    bool eventFilter(QObject *object, QEvent *event) override
+    {
+        if (object == m_popup && m_backdrop) {
+            if (event->type() == QEvent::Resize)
+                m_backdrop->setGeometry(m_popup->rect());
+            if (event->type() == QEvent::Paint)
+                return true;
+        }
+        return QComboBox::eventFilter(object, event);
+    }
+
+private:
+    static QString rgb(const QColor &color)
+    {
+        return QStringLiteral("%1,%2,%3").arg(color.red()).arg(color.green()).arg(color.blue());
+    }
+
+    void updateSurface()
+    {
+        const auto colors = palette();
+        const auto surface = QStringLiteral(
+            "QComboBox { combobox-popup: 0; background: rgba(%1, 22);"
+            " border: 1px solid rgba(%1, 48); border-radius: 6px; padding: 4px 20px 4px 7px; }"
+            "QComboBox:hover { background: rgba(%1, 35); }"
+            "QComboBox:focus { border-color: rgba(%2, 170); }"
+            "QComboBox::drop-down { subcontrol-origin: border; width: 20px; background: transparent; border: none; }"
+            "QComboBox::down-arrow { image: none; width: 0; height: 0; }")
+            .arg(rgb(colors.color(QPalette::WindowText)), rgb(colors.color(QPalette::Highlight)));
+        if (styleSheet() != surface)
+            setStyleSheet(surface);
+
+        const auto listSurface = QStringLiteral(
+            "QListView { background: transparent; border: none; outline: none; }"
+            "QListView::item { background: transparent; min-height: 25px; padding: 3px 7px; border-radius: 4px; }"
+            "QListView::item:hover, QListView::item:selected { background: rgba(%1, 190); color: %2; }")
+            .arg(rgb(colors.color(QPalette::Highlight)), colors.color(QPalette::HighlightedText).name());
+        if (view()->styleSheet() != listSurface)
+            view()->setStyleSheet(listSurface);
+    }
+
+    QPointer<QWidget> m_popup;
+    QPointer<Dtk::Widget::DBlurEffectWidget> m_backdrop;
+};
 
 struct Description {
     QString title;
@@ -31,9 +139,40 @@ Description describe(const QString &id)
             {"0", "禁用 CPU 睿频，有助于降低功耗和温度。"}
         }};
     }
+    if (id == QStringLiteral("cpu-epb")) {
+        Description info{QStringLiteral("CPU 能效偏好"), {
+            {"0", "0 · 性能"}, {"4", "4 · 偏性能"}, {"6", "6 · 默认"},
+            {"8", "8 · 偏省电"}, {"15", "15 · 省电"}
+        }, {}};
+        for (int value = 0; value <= 15; ++value) {
+            info.help.insert(QString::number(value),
+                QStringLiteral("Intel EPB：数值越小越偏向性能，越大越偏向省电。"
+                               "本机高性能配置为 0，平衡配置为 8。"));
+        }
+        return info;
+    }
+    if (id == QStringLiteral("laptop-mode")) {
+        return {QStringLiteral("延迟写回"),
+                {{"0", "关闭"}, {"1", "1 秒"}, {"2", "2 秒"}, {"5", "5 秒"}, {"10", "10 秒"}},
+                {{"0", "关闭文件系统 laptop_mode 的空闲延迟写回。"},
+                 {"1", "磁盘空闲后等待 1 秒再写回缓存。"},
+                 {"2", "磁盘空闲后等待 2 秒再写回缓存。"},
+                 {"5", "磁盘空闲后等待 5 秒再写回缓存。"},
+                 {"10", "磁盘空闲后等待 10 秒再写回缓存。"}}};
+    }
+    if (id == QStringLiteral("dirty-writeback")) {
+        Description info{QStringLiteral("脏页写回"), {}, {}};
+        for (int seconds : {5, 10, 15, 30, 60}) {
+            const auto value = QString::number(seconds * 100);
+            info.labels.insert(value, QStringLiteral("%1 秒").arg(seconds));
+            info.help.insert(value, QStringLiteral("同时调整 Linux VM 的周期写回检查间隔和脏页过期时间。"
+                                                   "本机高性能配置为 15 秒，平衡配置为 30 秒。"));
+        }
+        return info;
+    }
     if (id == QStringLiteral("aspm")) {
         return {"PCIe ASPM", {}, {
-            {"default", "使用平台默认策略。本机出现过高性能档死机，建议保留此选项。"},
+            {"default", "使用平台默认的 PCIe 链路电源策略。"},
             {"performance", "减少 PCIe 链路低功耗状态带来的唤醒延迟。若切换后系统失去响应，重启可恢复系统配置。"},
             {"powersave", "允许支持的链路进入节能状态，可能增加设备唤醒延迟。"},
             {"powersupersave", "启用更积极的链路省电策略，支持范围由设备和驱动决定。"}
@@ -134,16 +273,10 @@ public:
         outer->addWidget(summary);
         showMetrics({{"状态", "等待采样…"}});
 
-        auto *panes = new QHBoxLayout;
-        panes->setSpacing(9);
-        panes->addWidget(makePane("硬件调控", m_rows, m_hardwareScroll), 1);
-        auto *divider = new QFrame;
-        divider->setFrameShape(QFrame::VLine);
-        divider->setForegroundRole(QPalette::Mid);
-        panes->addWidget(divider);
-        panes->addWidget(makePane("显示器", m_monitorRows, m_monitorScroll), 1);
-        m_monitorRows->addWidget(hint("等待首次检测…"));
-        outer->addLayout(panes);
+        outer->addWidget(makePane("显示器", m_monitorRows, m_monitorScroll));
+        m_monitorRows->addWidget(hint("等待首次检测…"), 0, 0, 1, 2);
+        outer->addWidget(sectionDivider());
+        outer->addWidget(makePane("硬件调控", m_rows, m_hardwareScroll));
         m_status = hint("设置即刻生效。重启或系统重新应用电源模式时，相关设置可能恢复。");
         outer->addWidget(m_status);
         m_monitorRetry.setSingleShot(true);
@@ -153,6 +286,7 @@ public:
                 run(Operation::MonitorList);
         });
         connect(m_refresh, &QPushButton::clicked, this, [this] {
+            m_telemetryPending = true;
             run(Operation::List);
             refreshMonitors();
         });
@@ -255,22 +389,35 @@ private:
         return scroll;
     }
 
-    static QWidget *makePane(const QString &title, QVBoxLayout *&rows, QScrollArea *&scroll)
+    static QFrame *sectionDivider()
+    {
+        auto *line = new QFrame;
+        line->setFrameShape(QFrame::HLine);
+        line->setForegroundRole(QPalette::Mid);
+        line->setFixedHeight(1);
+        return line;
+    }
+
+    static QWidget *makePane(const QString &title, QGridLayout *&rows, QScrollArea *&scroll)
     {
         auto *pane = new QWidget;
         auto *layout = new QVBoxLayout(pane);
         layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(6);
+        layout->setSpacing(5);
         auto *heading = label(title);
+        heading->setWordWrap(false);
         auto font = heading->font();
         font.setBold(true);
         heading->setFont(font);
         layout->addWidget(heading);
         scroll = scrollArea();
         auto *content = new QWidget;
-        rows = new QVBoxLayout(content);
-        rows->setContentsMargins(1, 0, 7, 1);
-        rows->setSpacing(5);
+        rows = new QGridLayout(content);
+        rows->setContentsMargins(0, 0, 7, 1);
+        rows->setHorizontalSpacing(10);
+        rows->setVerticalSpacing(5);
+        rows->setColumnStretch(0, 1);
+        rows->setColumnStretch(1, 1);
         rows->setAlignment(Qt::AlignTop);
         scroll->setWidget(content);
         content->setAutoFillBackground(false);
@@ -298,25 +445,38 @@ private:
                 return;
 
             const QRect area = screen->availableGeometry().adjusted(10, 10, -10, -10);
-            const int maxHeight = qMax(1, qMin(560, area.height() * 4 / 5));
+            const int maxHeight = qMax(1, area.height());
             const int panelWidth = qMax(1, qMin(420, area.width()));
             setFixedWidth(panelWidth);
             auto *outer = layout();
             outer->invalidate();
             const int measured = outer->hasHeightForWidth()
                 ? outer->totalHeightForWidth(panelWidth) : outer->sizeHint().height();
-            const int chrome = measured - m_metricsScroll->minimumHeight() - m_hardwareScroll->minimumHeight();
+            const int chrome = measured - m_metricsScroll->minimumHeight()
+                - m_monitorScroll->minimumHeight() - m_hardwareScroll->minimumHeight();
             const int budget = qMax(0, maxHeight - chrome);
-            const int metricsWidth = qMax(1, panelWidth - 64);
-            const int metricsHeight = m_metrics->hasHeightForWidth()
-                ? m_metrics->heightForWidth(metricsWidth) : m_metrics->sizeHint().height();
-            const int summaryHeight = qBound(0, metricsHeight, budget * 2 / 5);
-            const int rowsHeight = qMax(m_rows->sizeHint().height(), m_monitorRows->sizeHint().height());
+            const auto margins = outer->contentsMargins();
+            const int settingsWidth = qMax(1, panelWidth - margins.left() - margins.right());
+            const int metricsWidth = qMax(1, settingsWidth - 26);
+            const auto desiredHeight = [](QGridLayout *rows, int width) {
+                return rows->hasHeightForWidth() ? rows->heightForWidth(width) : rows->sizeHint().height();
+            };
+            const int metricsHeight = desiredHeight(m_metrics, metricsWidth);
+            const int monitorDesired = desiredHeight(m_monitorRows, settingsWidth);
+            const int hardwareDesired = desiredHeight(m_rows, settingsWidth);
+            int summaryHeight = metricsHeight;
+            int monitorHeight = monitorDesired;
+            int hardwareHeight = hardwareDesired;
+            if (summaryHeight + monitorHeight + hardwareHeight > budget) {
+                summaryHeight = qMin(metricsHeight, qMax(budget * 2 / 5, budget - monitorDesired - hardwareDesired));
+                const int settingsBudget = budget - summaryHeight;
+                monitorHeight = qMin(monitorDesired, qMax(settingsBudget / 2, settingsBudget - hardwareDesired));
+                hardwareHeight = qMin(hardwareDesired, settingsBudget - monitorHeight);
+            }
             m_metricsScroll->setFixedHeight(summaryHeight);
-            const int controlsHeight = qBound(0, rowsHeight, budget - summaryHeight);
-            m_hardwareScroll->setFixedHeight(controlsHeight);
-            m_monitorScroll->setFixedHeight(controlsHeight);
-            const QSize target(panelWidth, qBound(1, chrome + summaryHeight + controlsHeight, maxHeight));
+            m_monitorScroll->setFixedHeight(monitorHeight);
+            m_hardwareScroll->setFixedHeight(hardwareHeight);
+            const QSize target(panelWidth, qBound(1, chrome + summaryHeight + monitorHeight + hardwareHeight, maxHeight));
 
             if (popup == this) {
                 resize(target);
@@ -434,12 +594,15 @@ private:
             const auto value = it.value();
             m_pendingValues.erase(it);
             run(Operation::Apply, id, value);
-        } else if (m_monitorRefreshPending) {
-            m_monitorRefreshPending = false;
-            run(Operation::MonitorList);
         } else if (m_refreshPending) {
             m_refreshPending = false;
             run(Operation::List);
+        } else if (m_monitorRefreshPending) {
+            m_monitorRefreshPending = false;
+            run(Operation::MonitorList);
+        } else if (m_telemetryPending) {
+            m_telemetryPending = false;
+            run(Operation::Telemetry);
         } else if (m_inputRefreshPending) {
             m_inputRefreshPending = false;
             if (isVisible())
@@ -594,55 +757,67 @@ private:
             item->widget()->deleteLater();
             delete item;
         }
-        if (controls.isEmpty())
-            rows->addWidget(label(monitors
-                                       ? "暂无可用的显示器设置。" : "当前驱动未提供可调整的项目。"));
+        if (controls.isEmpty()) {
+            rows->addWidget(label(monitors ? "暂无可用的显示器设置。" : "当前驱动未提供可调整的项目。"),
+                            0, 0, 1, 2);
+            return;
+        }
+
+        int hardwareIndex = 0;
+        int monitorRow = -3;
         QString previousMonitor;
+        const QString separator = QStringLiteral(" · ");
         for (const auto &entry : controls) {
             const auto control = entry.toObject();
             const auto id = control.value("id").toString();
             const auto current = control.value("current").toString();
             const auto title = control.value("title").toString();
-            if (id.isEmpty()) {
-                rows->addWidget(label(title + "\n" + control.value("detail").toString()));
-                continue;
-            }
-            const auto maximum = control.value("maximum").toInt();
-            const auto info = id.startsWith("monitor:")
-                ? monitorDescription(id.section(':', 1, 1), title, maximum,
-                                     control.value("options").toArray(), current)
-                : describe(id);
-            if (monitors) {
-                const auto monitorName = title.section(QStringLiteral(" · "), 0, 0);
-                if (monitorName != previousMonitor) {
-                    auto *heading = label(monitorName);
-                    auto font = heading->font();
+            const auto detail = control.value("detail").toString();
+            if (monitors && title.contains(separator)) {
+                const auto monitor = title.section(separator, 0, 1);
+                if (monitor != previousMonitor) {
+                    if (monitorRow >= 0)
+                        rows->addWidget(sectionDivider(), monitorRow + 2, 0, 1, 2);
+                    monitorRow += 3;
+                    previousMonitor = monitor;
+                    auto *model = label(monitor.section(separator, 0, 0));
+                    auto font = model->font();
                     font.setBold(true);
-                    heading->setFont(font);
-                    heading->setContentsMargins(0, previousMonitor.isEmpty() ? 0 : 6, 0, 1);
-                    heading->setToolTip(title.section(QStringLiteral(" · "), 0, -2));
-                    rows->addWidget(heading);
-                    previousMonitor = monitorName;
+                    model->setFont(font);
+                    model->setToolTip(monitor);
+                    rows->addWidget(model, monitorRow, 0);
                 }
             }
+            if (id.isEmpty()) {
+                if (monitors && title.contains(separator)) {
+                    rows->addWidget(hint(detail.isEmpty() ? title : detail), monitorRow, 1);
+                } else {
+                    rows->addWidget(hint(detail.isEmpty() ? title : title + "\n" + detail),
+                                    monitors ? 0 : hardwareIndex++ / 2, 0, 1, 2);
+                }
+                continue;
+            }
+
+            const auto feature = id.section(':', 1, 1);
+            const auto maximum = control.value("maximum").toInt();
+            const auto info = monitors
+                ? monitorDescription(feature, title, maximum, control.value("options").toArray(), current)
+                : describe(id);
             auto *box = new QWidget;
             box->setObjectName(id);
             box->setProperty("current", current);
-            const bool brightness = id.startsWith("monitor:brightness:") && maximum > 0;
-            QBoxLayout *layout = brightness ? static_cast<QBoxLayout *>(new QVBoxLayout(box))
-                                            : static_cast<QBoxLayout *>(new QHBoxLayout(box));
+            const bool brightness = monitors && feature == QStringLiteral("brightness") && maximum > 0;
+            auto *layout = new QHBoxLayout(box);
             layout->setContentsMargins(0, 0, 0, 0);
             layout->setSpacing(4);
             const auto shortTitle = monitors ? info.title.section(QStringLiteral(" · "), -1)
                                              : info.title.section(QStringLiteral(" · "), 0, 0);
             auto *name = label(shortTitle);
             name->setToolTip(info.title);
-            if (!brightness)
-                name->setMinimumWidth(monitors ? 48 : 62);
-            layout->addWidget(name, brightness ? 0 : 1);
+            name->setMinimumWidth(monitors ? 31 : 66);
+            layout->addWidget(name, monitors ? 0 : 1);
             const bool readOnly = qApp->applicationName() == QStringLiteral("dock-hardware-tuning-plugin-preview");
             if (brightness) {
-                auto *line = new QHBoxLayout;
                 auto *slider = new Dtk::Widget::DSlider(Qt::Horizontal);
                 slider->setAccessibleName(info.title);
                 slider->setMinimum(1);
@@ -653,9 +828,8 @@ private:
                 percent->setObjectName("slider-percent");
                 percent->setMinimumWidth(36);
                 percent->setAlignment(Qt::AlignCenter);
-                line->addWidget(slider, 1);
-                line->addWidget(percent);
-                layout->addLayout(line);
+                layout->addWidget(slider, 1);
+                layout->addWidget(percent);
                 slider->slider()->setTracking(true);
                 connect(slider, &Dtk::Widget::DSlider::valueChanged, box, [this, percent, maximum, id, readOnly](int value) {
                     percent->setText(QString::number(qRound(100.0 * value / maximum)) + "%");
@@ -664,7 +838,7 @@ private:
                 });
                 percent->setText(QString::number(qRound(100.0 * current.toInt() / maximum)) + "%");
             } else {
-                auto *combo = new QComboBox;
+                auto *combo = new TranslucentComboBox;
                 combo->setAccessibleName(info.title);
                 combo->view()->setMouseTracking(true);
                 for (const auto &option : control.value("options").toArray()) {
@@ -687,7 +861,14 @@ private:
                     run(Operation::Apply, id, value);
                 });
             }
-            rows->addWidget(box);
+            if (monitors) {
+                const bool input = feature == QStringLiteral("input");
+                rows->addWidget(box, monitorRow + (input ? 0 : 1),
+                                feature == QStringLiteral("brightness") ? 0 : 1);
+            } else {
+                rows->addWidget(box, hardwareIndex / 2, hardwareIndex % 2);
+                ++hardwareIndex;
+            }
         }
     }
 
@@ -724,6 +905,8 @@ private:
             const auto label = actual.isEmpty() ? (id.startsWith("monitor:input:")
                 ? QStringLiteral("输入源未确认") : QStringLiteral("当前值暂无"))
                 : id.startsWith("fan:") && actual.toInt() > 0 ? QStringLiteral("手动 %1%").arg(actual)
+                : id == QStringLiteral("dirty-writeback") ? QStringLiteral("%1 秒").arg(actual.toInt() / 100.0)
+                : id == QStringLiteral("laptop-mode") ? QStringLiteral("%1 秒").arg(actual)
                 : actual;
             combo->insertItem(0, label, actual);
             combo->setItemData(0, true, Transient);
@@ -821,6 +1004,17 @@ private:
 
     void renderTelemetry(const QJsonObject &data)
     {
+        const auto settings = data.value("hardwareSettings").toObject();
+        for (auto it = settings.begin(); it != settings.end(); ++it) {
+            if (m_pendingValues.contains(it.key()))
+                continue;
+            auto *row = findRow(it.key());
+            if (!row)
+                continue;
+            auto *combo = row->findChild<QComboBox *>();
+            if (combo && !combo->view()->isVisible() && row->property("current").toString() != it.value().toString())
+                updateControl(it.key(), it.value().toString());
+        }
         MetricRows lines;
         const auto total = data.value("totalTicks").toDouble(-1);
         const auto idle = data.value("idleTicks").toDouble(-1);
@@ -908,8 +1102,8 @@ private:
     QGridLayout *m_metrics = nullptr;
     QList<QLabel *> m_metricKeys;
     QList<QLabel *> m_metricValues;
-    QVBoxLayout *m_rows = nullptr;
-    QVBoxLayout *m_monitorRows = nullptr;
+    QGridLayout *m_rows = nullptr;
+    QGridLayout *m_monitorRows = nullptr;
     QScrollArea *m_hardwareScroll = nullptr;
     QScrollArea *m_monitorScroll = nullptr;
     QScrollArea *m_metricsScroll = nullptr;
@@ -928,6 +1122,7 @@ private:
     QString m_activeId;
     QString m_activeValue;
     bool m_refreshPending = false;
+    bool m_telemetryPending = false;
     bool m_inputRefreshPending = false;
     QMap<QString, QString> m_pendingValues;
     double m_totalTicks = -1;
