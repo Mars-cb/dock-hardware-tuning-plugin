@@ -1,3 +1,16 @@
+dock-hardware-tuning-plugin (0.2.11) unstable; urgency=medium
+
+  * Detect and control monitors directly through DDC/CI.
+  * Ship active-session permissions for AMD DisplayPort AUX adapters.
+
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Thu, 19 Nov 2026 15:30:00 +0800
+
+dock-hardware-tuning-plugin (0.2.10) unstable; urgency=medium
+
+  * Show missing display helper and initial scan failures in the monitor pane.
+
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Thu, 19 Nov 2026 15:00:00 +0800
+
 dock-hardware-tuning-plugin (0.2.9) unstable; urgency=medium
 
   * Recover monitor input readings after transient display detection failures.

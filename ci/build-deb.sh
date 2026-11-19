@@ -14,10 +14,11 @@ dpkg-checkbuilddeps
 dpkg-buildpackage -us -uc -b
 
 package="dock-hardware-tuning-plugin_${version}_${architecture}.deb"
-dpkg-deb -f "$stage/$package" Package Version Architecture Depends Suggests
+dpkg-deb -f "$stage/$package" Package Version Architecture Depends
 manifest=$(dpkg-deb --fsys-tarfile "$stage/$package" | tar -tf -)
 for file in ./usr/lib/dde-dock/plugins/libdock-hardware-tuning-plugin.so \
             ./usr/libexec/dock-hardware-tuning-plugin-helper \
+            ./lib/udev/rules.d/60-dock-hardware-tuning-plugin.rules \
             ./lib/systemd/system/dock-hardware-tuning.service \
             ./usr/share/dbus-1/system.d/io.github.DockHardwareTuning.conf; do
     grep -Fxq "$file" <<< "$manifest"

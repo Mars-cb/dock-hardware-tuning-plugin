@@ -17,11 +17,11 @@
 
 ## 显示器
 
-安装 `dde-dock-input-source` 0.1.5 或更新的兼容版本和 `ddcutil` 后，「显示器」页会用参考项目的独立 helper 扫描显示器和切换输入源。亮度和对比度使用 DDC/CI VCP 0x10 / 0x12，需要显示器开启 DDC/CI 且当前用户有对应 I²C 设备权限。参考项目的 udev 规则可以授予活动桌面用户 AMD DP AUX 的访问权限。
+显示器检测和输入源切换集成在本插件。安装包依赖系统的 `ddcutil`，直接使用 DDC/CI VCP 0x60、0x10 和 0x12 读取输入源、亮度和对比度。显示器需要开启 DDC/CI，当前用户需要有对应 I²C 设备权限。安装包包含为活动桌面用户授予 AMD DP AUX 访问权限的 udev 规则。
 
 面板只列出显示器报告的输入源。切到另一台设备后，可用显示器物理按键切回。亮度用 DTK 滑块选择，对比度按约 10% 步长选择。首次打开面板时检测显示器，之后沿用缓存，收到 DRM 插拔事件时重新检测。也可点击「刷新」。亮度和对比度写入后尝试读回确认。切换后插件会读回输入源。读不到时显示「输入源未确认」，并在面板打开期间定期重读。
 
-参考实现：[Mars-cb/dde-dock-input-source](https://github.com/Mars-cb/dde-dock-input-source/tree/10f5f4735415f675976e6e435e8b6b30bd503ae5)。本项目复用已安装的 helper 协议，未拷贝该仓库源码。Debian 打包结构沿用其原生源码包和 debhelper/CMake 方式。
+参考实现：[Mars-cb/dde-dock-input-source](https://github.com/Mars-cb/dde-dock-input-source/tree/10f5f4735415f675976e6e435e8b6b30bd503ae5)。本项目通过系统的 ddcutil 独立实现检测和写入。Debian 打包结构沿用其原生源码包和 debhelper/CMake 方式。
 
 ## 构建及打包
 
@@ -29,7 +29,7 @@
 
 ```bash
 ./ci/build-deb.sh
-sudo apt install ./dist/dock-hardware-tuning-plugin_0.2.9_amd64.deb
+sudo apt install ./dist/dock-hardware-tuning-plugin_0.2.11_amd64.deb
 ```
 
 安装后注销并重新登录 DDE，再从任务栏打开「硬件调控」。若图标没有显示，检查控制中心的任务栏插件列表。卸载使用 `sudo apt remove dock-hardware-tuning-plugin`。

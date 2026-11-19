@@ -283,7 +283,6 @@ def apply(key, value, paths, hwmon):
         raise
 
 
-SOURCE_HELPER = "/usr/libexec/dde-dock-input-source/dde-dock-input-source-helper"
 DDCUTIL = "/usr/bin/ddcutil"
 MONITOR_FEATURES = {"brightness": "10", "contrast": "12"}
 
@@ -301,21 +300,54 @@ def run_command(*args, timeout):
     return result.stdout
 
 
-def source_helper(*args):
-    response = json.loads(run_command(SOURCE_HELPER, *args, timeout=45))
-    if response.get("ok") is not True:
-        raise ValueError(response.get("error") or "显示器检测失败")
-    return response
+def monitor_buses(path):
+    # AMD exposes the DP AUX adapter below the connector as well as a legacy ddc link.
+    for adapter in sorted(path.glob("i2c-*")):
+        if re.fullmatch(r"i2c-[0-9]{1,5}", adapter.name):
+            yield adapter.name[4:]
+    adapter = (path / "ddc").resolve().name
+    if re.fullmatch(r"i2c-[0-9]{1,5}", adapter):
+        yield adapter[4:]
 
 
-def monitor_identity(monitor):
-    connector, bus, edid = (monitor.get(field) for field in ("id", "bus", "edid"))
-    if (not isinstance(connector, str)
-            or not re.fullmatch(r"card[0-9]+-[A-Za-z0-9-]+", connector)
-            or type(bus) is not int or bus < 0 or bus > 65535
-            or not isinstance(edid, str) or not re.fullmatch(r"[0-9a-fA-F]{256}", edid)):
-        return None
-    return connector, str(bus), edid.lower()
+def read_edid(path):
+    try:
+        edid = (path / "edid").read_bytes()[:128]
+    except OSError:
+        return b""
+    return edid if len(edid) == 128 and edid.startswith(bytes.fromhex("00ffffffffffff00")) else b""
+
+
+def monitor_name(edid, fallback):
+    for offset in (54, 72, 90, 108):
+        if edid[offset:offset + 5] == bytes.fromhex("000000fc00"):
+            name = edid[offset + 5:offset + 18].split(b"\n", 1)[0].decode("ascii", "replace").strip()
+            if name:
+                return name
+    return fallback
+
+
+def monitor_input(bus):
+    output = run_command(DDCUTIL, "--bus", bus, "--terse", "getvcp", "60", timeout=3)
+    match = re.search(r"^VCP 60 SNC x([0-9a-f]{1,2})\s*$", output, re.MULTILINE | re.IGNORECASE)
+    return str(int(match[1], 16)) if match and int(match[1], 16) else ""
+
+
+def input_sources(bus):
+    output = run_command(DDCUTIL, "--bus", bus, "capabilities", timeout=5)
+    sources = []
+    is_input = False
+    for line in output.splitlines():
+        feature = re.match(r"\s*Feature:\s+([0-9a-f]{2})\b", line, re.IGNORECASE)
+        if feature:
+            if is_input:
+                break
+            is_input = feature[1] == "60"
+        elif is_input:
+            value = re.match(r"\s*([0-9a-f]{2}):", line, re.IGNORECASE)
+            if value and int(value[1], 16):
+                sources.append(str(int(value[1], 16)))
+    return list(dict.fromkeys(sources))
 
 
 def monitor_levels(bus, code):
@@ -329,23 +361,39 @@ def monitor_levels(bus, code):
 
 def monitor_controls():
     rows = []
-    for monitor in source_helper("scan").get("monitors", []):
-        identity = monitor_identity(monitor)
-        name = "{} · {}".format(monitor.get("name") or "显示器",
-                               monitor.get("connector") or "未知接口")
-        sources = [str(v) for v in monitor.get("sources", [])
-                   if type(v) is int and 1 <= v <= 255]
-        if not identity:
-            rows.append({"title": name, "detail": monitor.get("error") or "无法确认 DDC/CI 连接"})
+    for path in sorted((SYS / "class/drm").glob("card*-*")):
+        if not re.fullmatch(r"card[0-9]+-[A-Za-z0-9-]+", path.name) or read(path / "status") != "connected":
             continue
-        connector, bus, edid = identity
-        if monitor.get("controllable") is True and sources:
+        port = path.name.split("-", 1)[1]
+        edid = read_edid(path)
+        name = "{} · {}".format(monitor_name(edid, "显示器"), port)
+        buses = [bus for bus in dict.fromkeys(monitor_buses(path)) if os.access("/dev/i2c-" + bus, os.R_OK | os.W_OK)]
+        if not edid or not buses:
+            rows.append({"title": name, "detail": "无法访问 DDC/CI，请检查显示器设置和 I²C 设备权限"})
+            continue
+        bus = buses[0]
+        current = ""
+        for candidate in buses:
+            try:
+                current = monitor_input(candidate)
+            except (OSError, ValueError):
+                continue
+            bus = candidate
+            if current:
+                break
+        connector = path.name
+        edid = edid.hex()
+        try:
+            sources = input_sources(bus)
+        except (OSError, ValueError):
+            sources = []
+        if sources or current:
             rows.append({"id": ":".join(("monitor", "input", connector, bus, edid)),
-                         "title": name + " · 输入源", "options": sources,
-                         "current": str(monitor.get("current", ""))})
+                         "title": name + " · 输入源", "options": sources or [current],
+                         "current": current})
         else:
             rows.append({"title": name + " · 输入源",
-                         "detail": monitor.get("error") or "显示器未报告可选输入源"})
+                         "detail": "无法读取输入源，请检查显示器是否启用 DDC/CI"})
         for feature, code in MONITOR_FEATURES.items():
             try:
                 levels = monitor_levels(bus, code)
@@ -362,38 +410,34 @@ def monitor_controls():
     return rows
 
 
+def monitor_target(connector, bus, edid):
+    if (not re.fullmatch(r"card[0-9]+-[A-Za-z0-9-]+", connector)
+            or not re.fullmatch(r"[0-9]{1,5}", bus)
+            or not re.fullmatch(r"[0-9a-f]{256}", edid)):
+        raise ValueError("无效的显示器目标")
+    path = SYS / "class/drm" / connector
+    if read_edid(path).hex() != edid:
+        raise ValueError("显示器身份已变化，请刷新后重试")
+    return path
+
+
 def monitor_inputs(keys):
     readings = {}
     for key in keys:
         parts = key.split(":")
         if len(parts) != 5 or parts[:2] != ["monitor", "input"]:
             continue
-        _, _, connector, bus, edid = parts
-        if not re.fullmatch(r"[0-9]{1,5}", bus):
-            continue
-        if monitor_identity({"id": connector, "bus": int(bus), "edid": edid}) != (connector, bus, edid):
-            continue
-        path = SYS / "class/drm" / connector
         try:
-            if (path / "edid").read_bytes()[:128].hex() != edid:
-                continue
-        except OSError:
+            path = monitor_target(*parts[2:])
+        except ValueError:
             continue
-        # A DP link change can recreate the AUX adapter with another bus number.
-        candidates = [entry.name for entry in path.glob("i2c-*")]
-        if not candidates:
-            candidates = [(path / "ddc").resolve().name, "i2c-" + bus]
-        for candidate in dict.fromkeys(candidates):
-            match = re.fullmatch(r"i2c-([0-9]+)", candidate)
-            if not match:
-                continue
+        for candidate in dict.fromkeys(monitor_buses(path)):
             try:
-                output = run_command(DDCUTIL, "--bus", match[1], "--terse", "getvcp", "60", timeout=3)
+                current = monitor_input(candidate)
             except (OSError, ValueError):
                 continue
-            match = re.search(r"^VCP 60 SNC x([0-9a-f]{1,2})\s*$", output, re.MULTILINE | re.IGNORECASE)
-            if match and int(match[1], 16):
-                readings[key] = str(int(match[1], 16))
+            if current:
+                readings[key] = current
                 break
     return readings
 
@@ -403,42 +447,28 @@ def set_monitor(key, value):
     if len(parts) != 5 or parts[0] != "monitor" or not re.fullmatch(r"[0-9]{1,5}", value):
         raise ValueError("无效的显示器设置")
     _, feature, connector, bus, edid = parts
-    if not re.fullmatch(r"[0-9]{1,5}", bus):
-        raise ValueError("无效的 I²C 总线")
-    identity = monitor_identity({"id": connector, "bus": int(bus), "edid": edid})
-    if identity != (connector, bus, edid) or feature not in {*MONITOR_FEATURES, "input"}:
-        raise ValueError("无效的显示器目标")
+    path = monitor_target(connector, bus, edid)
+    if bus not in monitor_buses(path):
+        raise ValueError("显示器连接已变化，请刷新后重试")
     if feature == "input":
-        if not 1 <= int(value) <= 255:
-            raise ValueError("无效的输入源")
-        source_helper("set", bus, edid, value)
+        if value not in input_sources(bus):
+            raise ValueError("显示器未报告此输入源，请刷新后重试")
+        monitor_target(connector, bus, edid)
+        # Switching away can drop the DDC link before the command can be verified.
+        run_command(DDCUTIL, "--bus", bus, "--noverify", "setvcp", "60", value, timeout=8)
         return
-    connector_path = SYS / "class/drm" / connector
+    if feature not in MONITOR_FEATURES:
+        raise ValueError("无效的显示器设置")
+    code = MONITOR_FEATURES[feature]
     if feature == "brightness":
         if not 1 <= int(value) <= 65535:
             raise ValueError("无效的亮度值")
-        bus_path = (SYS / "bus/i2c/devices" / ("i2c-" + bus)).resolve(strict=True)
-        if (bus_path.parent == connector_path.resolve(strict=True)
-                or bus_path == (connector_path / "ddc").resolve()):
-            if (connector_path / "edid").read_bytes()[:128].hex() != edid:
-                raise ValueError("显示器身份已变化，请刷新后重试")
-            run_command(DDCUTIL, "--bus", bus, "--verify", "setvcp", "10", value, timeout=8)
-            return
-    matches = [monitor for monitor in source_helper("scan").get("monitors", [])
-               if monitor_identity(monitor) == identity]
-    if len(matches) != 1:
-        raise ValueError("显示器连接已变化，请刷新后重试")
-    code = MONITOR_FEATURES[feature]
-    levels = monitor_levels(bus, code)
-    if not levels or not 1 <= int(value) <= levels[1]:
-        raise ValueError("设置超出显示器支持的范围")
-    actual_edid = (SYS / "class/drm" / connector / "edid").read_bytes()[:128].hex()
-    if actual_edid != edid:
-        raise ValueError("显示器身份已变化，请刷新后重试")
-    run_command(DDCUTIL, "--bus", bus, "setvcp", code, value, timeout=8)
-    levels = monitor_levels(bus, code)
-    if not levels or levels[0] != int(value):
-        raise ValueError("指令已发送，但读回值不符")
+    else:
+        levels = monitor_levels(bus, code)
+        if not levels or not 1 <= int(value) <= levels[1]:
+            raise ValueError("设置超出显示器支持的范围")
+        monitor_target(connector, bus, edid)
+    run_command(DDCUTIL, "--bus", bus, "--verify", "setvcp", code, value, timeout=8)
 
 
 def set_hardware(key, value):
@@ -537,8 +567,6 @@ def main(args):
         print(json.dumps(monitor_inputs(args[1:])))
         return
     if args == ["monitor-list"]:
-        if not Path(SOURCE_HELPER).is_file():
-            raise ValueError("显示器页需要安装 dde-dock-input-source")
         print(json.dumps(monitor_controls()))
         return
     if len(args) == 3 and args[0] == "monitor-set":

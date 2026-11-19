@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(dock-hardware-tuning-plugin VERSION 0.2.9 LANGUAGES CXX)
+project(dock-hardware-tuning-plugin VERSION 0.2.11 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)

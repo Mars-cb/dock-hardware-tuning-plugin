@@ -11,8 +11,7 @@ Vcs-Browser: https://github.com/Mars-cb/dock-hardware-tuning-plugin
 
 Package: dock-hardware-tuning-plugin
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, dde-dock (>= 5.9), libqt5svg5, python3 (>= 3.7), dbus, systemd, python3-dbus, python3-gi
-Suggests: dde-dock-input-source (>= 0.1.5), ddcutil
+Depends: ${shlibs:Depends}, ${misc:Depends}, dde-dock (>= 5.9), libqt5svg5, python3 (>= 3.7), dbus, systemd, python3-dbus, python3-gi, ddcutil
 Description: DDE dock hardware monitor and tuning panel
  Monitor CPU, memory, AMD GPU and disk activity. Adjust supported runtime
  settings independently, and control external displays with DDC/CI.

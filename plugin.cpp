@@ -498,7 +498,8 @@ private:
                     m_monitorRetry.stop();
                     m_inputRefreshPending = true;
                 }
-                showPageStatus();
+                if (monitors || !m_monitorScanFailed)
+                    showPageStatus();
             } else if (operation == Operation::MonitorList) {
                 m_monitorScanFailed = true;
                 for (const auto &id : monitorInputIds()) {
@@ -510,7 +511,12 @@ private:
                     --m_monitorRetries;
                     m_monitorRetry.start();
                 }
-                m_status->setText(QStringLiteral("显示器扫描暂未完成，等待读回输入源。"));
+                const QString message = m_monitorRetry.isActive()
+                    ? QStringLiteral("显示器检测失败，正在重试。")
+                    : QStringLiteral("显示器检测失败：%1").arg(failure);
+                if (!m_monitorsLoaded)
+                    renderRows(QJsonArray{QJsonObject{{"title", message}}}, true);
+                m_status->setText(message);
                 qWarning().noquote() << "Hardware plugin display scan:" << failure;
             } else {
                 m_status->setText(QStringLiteral("硬件列表刷新失败，保留上次结果。%1").arg(failure));
