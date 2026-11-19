@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=io.github.DockHardwareTuning
+Exec=/usr/libexec/dock-hardware-tuning-plugin-helper service
+User=root
+SystemdService=dock-hardware-tuning.service

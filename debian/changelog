@@ -1,45 +1,68 @@
-dde-dock-input-source (0.1.5) unstable; urgency=medium
+dock-hardware-tuning-plugin (0.2.9) unstable; urgency=medium
 
-  * Cache monitor information instead of scanning on each panel opening.
-  * Listen for DRM hotplug events as well as Qt desktop screen changes.
-  * Coalesce connection events and preserve manual and post-switch refreshes.
+  * Recover monitor input readings after transient display detection failures.
 
- -- Input Source Plugin Contributors <noreply@example.invalid>  Thu, 22 Oct 2026 10:13:08 +0800
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Thu, 19 Nov 2026 14:00:00 +0800
 
-dde-dock-input-source (0.1.4) unstable; urgency=medium
+dock-hardware-tuning-plugin (0.2.8) unstable; urgency=medium
 
-  * Use DTK behind-window blur for input source popup backgrounds.
-  * Show the current input source by default and switch on user activation.
-  * Remove per-monitor switch buttons and keep initialization read-only.
+  * Keep the popup inside the screen and compact the transparent settings panes.
 
- -- Input Source Plugin Contributors <noreply@example.invalid>  Wed, 21 Oct 2026 15:47:59 +0800
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Thu, 19 Nov 2026 13:00:00 +0800
 
-dde-dock-input-source (0.1.3) unstable; urgency=medium
+dock-hardware-tuning-plugin (0.2.7) unstable; urgency=medium
 
-  * Make the separate input-source popup window translucent.
-  * Remove opaque item view and viewport backgrounds in the expanded list.
-  * Add an expanded-popup screenshot option to the debugging panel.
+  * Send brightness changes during slider movement.
+  * Avoid rescanning displays before writing to a verified DRM I2C bus.
 
- -- Input Source Plugin Contributors <noreply@example.invalid>  Wed, 21 Oct 2026 13:37:16 +0800
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Thu, 19 Nov 2026 12:30:00 +0800
 
-dde-dock-input-source (0.1.2) unstable; urgency=medium
+dock-hardware-tuning-plugin (0.2.6) unstable; urgency=medium
 
-  * Let the dock blur show through the panel and scroll content.
-  * Use palette-aware translucent control and monitor card backgrounds.
-  * Reduce the dock icon to 16 pixels with matching artwork.
+  * Refresh current monitor input without rescanning display capabilities.
+  * Queue the latest setting separately for each control.
 
- -- Input Source Plugin Contributors <noreply@example.invalid>  Wed, 21 Oct 2026 12:30:30 +0800
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Thu, 19 Nov 2026 12:00:00 +0800
 
-dde-dock-input-source (0.1.1) unstable; urgency=medium
+dock-hardware-tuning-plugin (0.2.5) unstable; urgency=medium
 
-  * Select the connector-local DisplayPort AUX adapter on AMD Display Core.
-  * Add active-session udev access for AMD DisplayPort AUX adapters.
-  * Normalize X11 DisplayPort names and avoid the dock legacy filename filter.
+  * Keep controls interactive while settings are applied.
+  * Resize the panel when control content changes and apply monitor brightness during dragging.
 
- -- Input Source Plugin Contributors <noreply@example.invalid>  Wed, 21 Oct 2026 12:30:00 +0800
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Thu, 19 Nov 2026 00:00:00 +0800
 
-dde-dock-input-source (0.1.0) unstable; urgency=medium
+dock-hardware-tuning-plugin (0.2.4) unstable; urgency=medium
 
-  * Initial release with per-monitor DDC/CI input source switching.
+  * Keep narrow control titles readable and populate initial metrics after monitor detection.
 
- -- Input Source Plugin Contributors <noreply@example.invalid>  Wed, 21 Oct 2026 12:00:00 +0800
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Wed, 18 Nov 2026 17:40:00 +0800
+
+dock-hardware-tuning-plugin (0.2.3) unstable; urgency=medium
+
+  * Apply on selection and show confirmed values in the controls.
+  * Use side-by-side panes with monitor hotplug and a cached first scan.
+  * Color temperature and capacity warnings and clean up active reads safely.
+
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Wed, 18 Nov 2026 17:35:00 +0800
+
+dock-hardware-tuning-plugin (0.2.2) unstable; urgency=medium
+
+  * Wait for AMDGPU fan readback and display confirmed mode in the applet.
+
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Wed, 18 Nov 2026 17:26:00 +0800
+
+dock-hardware-tuning-plugin (0.2.1) unstable; urgency=medium
+
+  * Register in the system plugin area and remember drag ordering.
+  * Widen the applet and use DTK DSlider for monitor brightness.
+  * Retain display readings and only scan on explicit refresh.
+  * Route hardware writes through a restricted system D-Bus service.
+  * Accept driver PWM rounding and display the read-back value.
+
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Wed, 18 Nov 2026 17:05:00 +0800
+
+dock-hardware-tuning-plugin (0.2.0) unstable; urgency=medium
+
+  * Add the hardware tuning dock applet, telemetry and monitor controls.
+
+ -- DDE Hardware Tuning Contributors <noreply@example.invalid>  Wed, 18 Nov 2026 16:00:00 +0800

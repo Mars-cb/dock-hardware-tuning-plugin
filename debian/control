@@ -1,17 +1,18 @@
-Source: dde-dock-input-source
+Source: dock-hardware-tuning-plugin
 Section: utils
 Priority: optional
-Maintainer: Input Source Plugin Contributors <noreply@example.invalid>
-Build-Depends: debhelper-compat (= 12), cmake, pkg-config, qtbase5-dev (>= 5.11), dde-dock-dev, libdtkwidget-dev, libudev-dev, libddcutil-dev (>= 0.9.0)
+Maintainer: DDE Hardware Tuning Contributors <noreply@example.invalid>
+Build-Depends: debhelper-compat (= 12), cmake, qtbase5-dev (>= 5.11), libqt5svg5-dev, libdtkwidget-dev (>= 5.6), pkg-config, libudev-dev
 Standards-Version: 4.5.0
 Rules-Requires-Root: no
-Homepage: https://github.com/Mars-cb/dde-dock-input-source
-Vcs-Git: https://github.com/Mars-cb/dde-dock-input-source.git
-Vcs-Browser: https://github.com/Mars-cb/dde-dock-input-source
+Homepage: https://github.com/Mars-cb/dock-hardware-tuning-plugin
+Vcs-Git: https://github.com/Mars-cb/dock-hardware-tuning-plugin.git
+Vcs-Browser: https://github.com/Mars-cb/dock-hardware-tuning-plugin
 
-Package: dde-dock-input-source
+Package: dock-hardware-tuning-plugin
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, dde-dock
-Description: DDE dock monitor input source switcher
- Detect connected monitors and switch their hardware input sources using DDC/CI.
- Includes a dock plugin, an isolated helper, and a standalone debugging panel.
+Depends: ${shlibs:Depends}, ${misc:Depends}, dde-dock (>= 5.9), libqt5svg5, python3 (>= 3.7), dbus, systemd, python3-dbus, python3-gi
+Suggests: dde-dock-input-source (>= 0.1.5), ddcutil
+Description: DDE dock hardware monitor and tuning panel
+ Monitor CPU, memory, AMD GPU and disk activity. Adjust supported runtime
+ settings independently, and control external displays with DDC/CI.

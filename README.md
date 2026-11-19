@@ -1,90 +1,52 @@
-# 显示器输入源任务栏插件
+# dock-hardware-tuning-plugin
 
-DDE/统信 UOS 任务栏插件。点击任务栏中的显示器图标，在面板中为每个显示器选择 HDMI、DisplayPort、DVI 等输入源，选择后立即切换。
+适用于 UOS 20 的 DDE Dock 5.9 插件，使用 Qt 5.11 和 Dock 插件接口 2.0。点击任务栏上的芯片图标打开面板。左侧为硬件调控，右侧为显示器。下拉框显示当前值，选择另一项后立即应用。悬停在控件或下拉选项上可查看说明。亮度滑块拖动时随数值变化提交。
 
-**兼容范围：能够识别屏幕不代表能够切换其输入源。并非每台显示器都支持 DDC/CI；支持 DDC/CI 也不保证实现 VCP `0x60` 输入源控制。本版本仅为支持相应控制且连接链路允许访问的显示器提供切换，其他屏幕显示不可用原因。通用软件无法保证切换所有型号的硬件输入源。**
+| 项目 | 面板可调节的设置 | 监控 |
+| --- | --- | --- |
+| CPU | 调频策略、全局睿频（驱动提供时） | 总占用、封装温度、各调频策略中的最高读数 |
+| AMD GPU | 性能档位、自动风扇或固定 PWM 70% / 85% / 100% | 核心和显存控制器负载、频率、显存容量及使用量、温度、功耗、风扇 RPM |
+| 内存 | | 已用、总量、使用比例 |
+| PCIe | ASPM 策略 | 当前策略 |
+| 磁盘 | SATA 和 NVMe 的 I/O 调度器 | 本机系统及数据卷容量、每盘吞吐量、驱动提供时的温度 |
+| 外接显示器 | 每屏硬件输入源、亮度、对比度 | 当前 DDC/CI 读数 |
 
-## 功能
+监控仅在面板显示时每十秒采样一次。CPU 和 GPU 温度在临界值以下 10 °C 内为黄色，达到临界值为红色。内存、显存在 85% / 95% 着色；磁盘容量在 90% / 95% 着色。未暴露的控制项目会自动隐藏。CPU 占用和磁盘速度在第二次采样后显示。显存容量和显存控制器负载是不同指标。GPU 调控目前只支持 amdgpu，GPU 风扇的百分比表示 PWM 占空比。风扇固定模式应在观察温度时使用，测完可切回自动。主板风扇、硬盘休眠和 GPU 电压不在调控范围内。
 
-- 合并 Linux DRM 已连接显示器、Qt 桌面屏幕与 libddcutil 检测结果；显示名称、接口、序列号和当前输入源。
-- 从显示器 capabilities 的 VCP `0x60` 字段获取可选输入源；不将通用输入源列表冒充实际硬件能力。
-- 内置屏、虚拟屏、DDC/CI 不支持及无权限的显示器保留在列表中，并说明原因。
-- 下拉列表使用与任务栏相同的 DTK 背景模糊组件，跟随系统主题；模糊效果需要窗口管理器支持。
-- 手动模式支持未报告的常见输入源及自定义十六进制 VCP 值。USB-C 没有通用的输入源编号，必须按显示器资料填写，未知值按 `0xNN` 展示。自定义值输入后按 Enter 切换。
-- 首次打开面板时检测一次，之后直接展示缓存；通过 DRM 热插拔事件及 Qt 屏幕增删通知自动刷新，连续事件合并处理，面板隐藏时仍监听。也支持手动刷新，切换指令发送后自动确认状态。
-- libddcutil 在独立进程中运行，操作串行，60 秒超时；进程间互斥，避免两个面板同时操作。
-- 每次切换重新检测，并核对 I²C 总线及完整的 128 字节基础 EDID。相同型号或重复 EDID 不按列表顺序猜测。
-- 默认显示当前输入源，只有用户主动选择其他输入源才写入硬件，初始化和刷新不会触发切换。指令成功发送后不假称验证了画面，不自动重试写入。
+本版只修改运行时设置。重启或 DDE 重设电源模式可能覆盖设置。面板中的「刷新」会重新读取状态。在出现过高性能档死机的机器上，可以保留 PCIe ASPM 的默认值，单独改变 CPU 调频。
 
-输入源切换依赖外接显示器支持 DDC/CI，且在显示器 OSD 菜单中启用。输入源是**显示器自身的硬件输入**，例如将一块显示器从当前电脑的 DP 切至另一台电脑的 HDMI；不是桌面复制/扩展设置。切至其他设备后，此电脑可能失去画面和 DDC 控制，恢复时可能需要使用显示器物理按键。
+## 显示器
 
-## 构建与调试
+安装 `dde-dock-input-source` 0.1.5 或更新的兼容版本和 `ddcutil` 后，「显示器」页会用参考项目的独立 helper 扫描显示器和切换输入源。亮度和对比度使用 DDC/CI VCP 0x10 / 0x12，需要显示器开启 DDC/CI 且当前用户有对应 I²C 设备权限。参考项目的 udev 规则可以授予活动桌面用户 AMD DP AUX 的访问权限。
 
-目标：提供 `PluginsItemInterface` 1.x 兼容接口的 DDE Dock，Qt 5.11+，C++14，libddcutil 0.9.0+。本项目使用兼容插件元数据 `api: 1.1.1`。新版仅支持 Qt6/QML 接口的任务栏需要另行适配。
+面板只列出显示器报告的输入源。切到另一台设备后，可用显示器物理按键切回。亮度用 DTK 滑块选择，对比度按约 10% 步长选择。首次打开面板时检测显示器，之后沿用缓存，收到 DRM 插拔事件时重新检测。也可点击「刷新」。亮度和对比度写入后尝试读回确认。切换后插件会读回输入源。读不到时显示「输入源未确认」，并在面板打开期间定期重读。
 
-```bash
-sudo apt-get install build-essential cmake pkg-config qtbase5-dev dde-dock-dev libdtkwidget-dev libudev-dev libddcutil-dev
-cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=/usr
-cmake --build build -j4
-QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
+参考实现：[Mars-cb/dde-dock-input-source](https://github.com/Mars-cb/dde-dock-input-source/tree/10f5f4735415f675976e6e435e8b6b30bd503ae5)。本项目复用已安装的 helper 协议，未拷贝该仓库源码。Debian 打包结构沿用其原生源码包和 debhelper/CMake 方式。
 
-# 示例面板，不访问硬件
-./build/input-source-panel --demo
-# 真实显示器调试面板，不需要加载插件
-./build/input-source-panel
-# 只读检测，输出 JSON
-./build/dde-dock-input-source-helper scan
-```
+## 构建及打包
 
-构建生成：`libdock-input-source.so`、`dde-dock-input-source-helper` 和 `input-source-panel`。也可用 `-DDOCK_INCLUDE_DIR=/path/to/dde-dock/interfaces` 指定源码接口目录。
-
-## 安装
+构建依赖为 CMake、C++14 编译器、qtbase5-dev 5.11+、libqt5svg5-dev、libdtkwidget-dev 5.6+、pkg-config、libudev-dev、debhelper 和 fakeroot。本机优先使用系统的 dde-dock-dev 头文件。缺少该包时，使用项目内附的 UOS 20 Dock 5.9.5 ABI 头文件。
 
 ```bash
-sudo cmake --install build
+./ci/build-deb.sh
+sudo apt install ./dist/dock-hardware-tuning-plugin_0.2.9_amd64.deb
 ```
 
-默认插件安装到 `/usr/lib/dde-dock/plugins/`，辅助程序到 `/usr/libexec/dde-dock-input-source/`（取决于 `CMAKE_INSTALL_LIBEXECDIR`），调试面板到 `/usr/bin/`。请保证**配置时的前缀与最终安装位置一致**；helper 路径在配置时确定。安装完成后重新登录桌面，再点击任务栏显示器图标。插件支持任务栏中的启用/禁用与位置记忆。
+安装后注销并重新登录 DDE，再从任务栏打开「硬件调控」。若图标没有显示，检查控制中心的任务栏插件列表。卸载使用 `sudo apt remove dock-hardware-tuning-plugin`。
 
-开发时可通过 `DDE_INPUT_SOURCE_HELPER=/absolute/path/to/build/dde-dock-input-source-helper` 覆盖辅助程序路径。独立调试面板优先查找与自身同目录的辅助程序。安装包包含 AMD DisplayPort AUX 设备的 udev 规则，仅授权当前活动的本地桌面用户；不会开放主板 SMBus。安装后需由管理员重新加载规则并触发对应设备事件，或重启系统使规则生效。
+插件由普通用户运行。传感器读取和显示器调节按系统提供的设备权限工作。内核参数写入由系统 D-Bus 服务执行。安装使用管理员权限。日常调控仅对 sudo 组中正使用本机活动图形会话的用户开放。服务只接受预定义项目和驱动支持的值。GPU PWM 允许驱动在 3 个百分点内取整，面板显示读回值。
 
-## 硬件条件与故障排查
+GitHub Actions 在每次 push 后使用固定 Debian 10 容器和校验过的 DTK 5.6 源码构建 amd64 版本，并在该次运行的 Artifacts 中保存 deb 和 SHA-256。合并后的批量推送在推送末端的提交上运行一次。工作流也可手动触发。
 
-1. 在显示器自身的 OSD 菜单中启用 DDC/CI。部分 KVM、扩展坞、转接器不透传 DDC。
-2. 如果没有 `/dev/i2c-*`，可执行 `sudo modprobe i2c-dev` 后重新检测。持久加载方式由系统配置决定。
-3. AMD Display Core 的 DP 控制通道可能是接口目录内的 AUX I²C 适配器（例如 i2c-5），而非 `ddc` 链接指向的普通 I²C（例如 i2c-2）。本插件优先使用该接口唯一的 AUX 适配器。当前用户须具备相关 `/dev/i2c-N` 的读写权限。使用发行版的 udev 规则或已有 `i2c` 用户组管理权限；组变更后重新登录。不要以 root 启动任务栏。
-4. capabilities 可能缺失或错误。确认硬件实际支持后可使用手动模式，自定义值为十六进制。仅列出标准名称，厂商自定义值不会自动推断为 USB-C。
-5. 切换发送成功只代表 DDC 写操作成功。切换离开当前电脑后，屏幕可能从列表消失，无法保证能从此电脑切回。
-6. 当前控制通道为 I²C DDC/CI（包括能够透传的 HDMI、DP、USB-C DP Alt Mode）；不支持仅通过 USB HID 控制的显示器、MCCS 3.0 表格式输入源及厂商私有分屏协议。
-7. DRM 监听不可用时仍使用 Qt 屏幕增删通知；未产生插拔事件的外部输入源变化可点击刷新。DDC 设备繁多或响应很慢时，60 秒检测可能超时；桌面屏幕仍保留在面板中。
-
-## 测试与预览
+## 本机预览
 
 ```bash
-QT_QPA_PLATFORM=offscreen ./build/input-source-panel --demo --screenshot build/panel-demo.png
-QT_QPA_PLATFORM=offscreen ./build/input-source-panel --demo --popup-screenshot build/popup-demo.png
-QT_QPA_PLATFORM=offscreen ./build/input-source-panel --quit-after 1500
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j 3
+DDE_HARDWARE_TUNING_PREVIEW_HELPER="$PWD/controller.py" \
+  build/dock-hardware-tuning-plugin-preview "$PWD/build/libdock-hardware-tuning-plugin.so"
 ```
 
-自动化测试覆盖后台程序缺失与无效响应、非法目标拒绝、输入源编号、EDID 与总线匹配、重复 EDID、多屏 DRM 枚举、AMD DisplayPort AUX 与普通 I²C 的区分、不支持的设备、手动模式、真实 Qt 插件加载、插件生命周期及面板交互。硬件写操作应在连接真实显示器的桌面会话中手动验证。
+预览使用真实读数，控件只读。附加 PNG 路径可在离屏模式保存预览图。
 
-## Debian 打包
-
-适用于已提供 DDE Dock 开发接口的 Debian/统信 UOS 环境。`debian/` 包含控制文件、debhelper 构建规则、变更记录、版权声明与原生源码包格式；测试使用离屏 Qt，不需要图形会话。
-
-```bash
-sudo apt-get install build-essential debhelper cmake pkg-config qtbase5-dev dde-dock-dev libdtkwidget-dev libudev-dev libddcutil-dev
-dpkg-checkbuilddeps
-dpkg-buildpackage -us -uc -b -j4
-```
-
-安装包生成在项目上一级目录，例如 `../dde-dock-input-source_0.1.5_amd64.deb`。运行依赖由 `dpkg-shlibdeps` 自动生成，包内包含任务栏插件、后台程序、独立调试面板和 AMD AUX 的 udev 规则。
-
-```bash
-sudo apt-get install ../dde-dock-input-source_0.1.5_amd64.deb
-```
-
-安装后重新打开任务栏会话以加载新版插件。需要构建源码包时使用 `dpkg-buildpackage -us -uc`；建议从干净的 Git 检出目录构建。
-
-
-参考：[ddcutil C API](https://www.ddcutil.com/api_main/)、[输入源 capabilities 示例](https://www.ddcutil.com/cap_u3011_verbose_output/)、[显示器能力信息与 USB-C 编号的限制](https://www.ddcutil.com/faq/)。
+GPU 节点定义见 [Linux AMDGPU 文档](https://kernel.org/doc/html/latest/gpu/amdgpu/thermal.html)，CPU 调频规则见 [Linux 5.10 CPUFreq 文档](https://kernel.org/doc/html/v5.10/admin-guide/pm/cpufreq.html)。

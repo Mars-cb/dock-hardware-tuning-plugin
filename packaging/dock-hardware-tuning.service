@@ -1,0 +1,19 @@
+[Unit]
+Description=Dock hardware tuning
+After=dbus.service systemd-logind.service
+
+[Service]
+Type=dbus
+BusName=io.github.DockHardwareTuning
+ExecStart=/usr/libexec/dock-hardware-tuning-plugin-helper service
+User=root
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
